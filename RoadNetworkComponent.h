@@ -52,6 +52,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road", meta = (ClampMin = "0", ClampMax = "100"))
 	int32 BlockChance = 20;
 
+	// Seed for procedural generation. If set to -1, a unique random seed is automatically generated on BeginPlay.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road")
+	int32 Seed = -1;
+
 	// ==================== Probability Settings ====================
 
 	// Generation probability of a four-way intersection (Cross) (0.0 to 1.0)
@@ -73,7 +77,7 @@ public:
 	float NodeSphereRadius = 30.f;
 
 private:
-	// Deterministic pseudo-random hash algorithm
+	// Deterministic pseudo-random hash algorithm incorporating the seed
 	uint32 GetGridHash(int32 X, int32 Y) const;
 	uint32 GetSegmentHash(int32 X1, int32 Y1, int32 X2, int32 Y2) const;
 
