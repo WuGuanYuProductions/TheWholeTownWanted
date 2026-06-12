@@ -13,6 +13,12 @@ URoadNetworkComponent::URoadNetworkComponent()
 void URoadNetworkComponent::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// If seed is set to -1, generate a completely random seed using current system time cycles
+	if (Seed == -1)
+	{
+		Seed = FMath::RandRange(0, 999999);
+	}
 }
 
 void URoadNetworkComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
@@ -31,11 +37,13 @@ void URoadNetworkComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 	}
 }
 
-// Classic deterministic Jenkins hash variant. Takes coordinates and returns a fixed pseudo-random value
+// Classic deterministic Jenkins hash variant, now incorporating the generation seed
 uint32 URoadNetworkComponent::GetGridHash(int32 X, int32 Y) const
 {
-	uint32 a = (uint32)X;
-	uint32 b = (uint32)Y;
+	// Scramble inputs using the seed to ensure different layouts per seed
+	uint32 a = (uint32)(X ^ Seed);
+	uint32 b = (uint32)(Y ^ (Seed >> 16));
+
 	a = (a ^ 61) ^ (b >> 16);
 	a = a + (b << 3);
 	a = a ^ (a >> 4);
@@ -106,7 +114,7 @@ ERoadType URoadNetworkComponent::GetInitialRoadTypeAt(int32 X, int32 Y) const
 	}
 
 	int32 ConnectionCount = Connected.Num();
-	uint32 NodeHash = GetGridHash(X, Y); // Get the deterministic hash of the current coordinates
+	uint32 NodeHash = GetGridHash(X, Y); // Get the seed-based deterministic hash of the current coordinates
 
 	if (ConnectionCount == 4)
 	{
@@ -204,7 +212,7 @@ void URoadNetworkComponent::UpdateAndDrawRoadNetwork(const FVector& PlayerLocati
 				}
 
 				// [Core Bug Fix]: If all directions of a node are blocked (physical connection count is 0),
-				// then this node should not be generated as a road network node; skip it directly (prevents spawning isolated Parking lots with no road connections)
+				// then this node should not be generated as a road network node; skip it directly
 				if (Node.ConnectedCoords.Num() == 0)
 				{
 					continue;
