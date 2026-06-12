@@ -4,7 +4,7 @@
 #include "Components/ActorComponent.h"
 #include "RoadNetworkComponent.generated.h"
 
-// Road type enum
+// 道路类型枚举
 UENUM(BlueprintType)
 enum class ERoadType : uint8
 {
@@ -15,15 +15,6 @@ enum class ERoadType : uint8
 	TRoad UMETA(DisplayName = "T-Road"),
 	End UMETA(DisplayName = "End"),
 	Parking UMETA(DisplayName = "Parking")
-};
-
-// Temporary struct for road network nodes generated at runtime
-struct FProceduralRoadNode
-{
-	FIntPoint GridCoords;
-	FVector WorldPosition;
-	ERoadType RoadType;
-	TArray<FIntPoint> ConnectedCoords;
 };
 
 UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
@@ -38,61 +29,60 @@ protected:
 	virtual void BeginPlay() override;
 
 public:
-	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+	// ==================== 基础路网设置 ====================
 
-	// Size of each grid cell (in centimeters, e.g., 800.f = 8 meters)
+	// 路网单元网格大小（单位：厘米，例如 800.f = 8米）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road")
 	float CellSize = 800.f;
 
-	// Generation half-radius (in grid units. 4 means 4 * 8m = 32m radius, covering a total area of 64m * 64m)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road")
-	int32 GridRadius = 4;
-
-	// Road block probability (0-100). Higher values lead to more dead ends and turns, resulting in a sparser road network.
+	// 道路阻断概率 (0-100)，值越大死路和转弯越多
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road", meta = (ClampMin = "0", ClampMax = "100"))
 	int32 BlockChance = 20;
 
-	// Seed for procedural generation. If set to -1, a unique random seed is automatically generated on BeginPlay.
+	// 生成种子，-1 为随机
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road")
 	int32 Seed = -1;
 
-	// ==================== Probability Settings ====================
+	// 道路宽度（单位：厘米，建筑会根据此宽度进行避让）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road")
+	float RoadWidth = 300.f;
 
-	// Generation probability of a four-way intersection (Cross) (0.0 to 1.0)
+	// ==================== 概率设置 ====================
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road|Probability", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float CrossChance = 1.0f; // Default is 1.0 (100% probability)
+	float CrossChance = 1.0f;
 
-	// Generation probability of a T-junction (T-Road) (0.0 to 1.0)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road|Probability", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float TRoadChance = 1.0f; // Default is 1.0 (100% probability)
+	float TRoadChance = 1.0f;
 
-	// Probability of converting a dead end (End) into a parking lot (Parking) (0.0 to 1.0), replacing the original hardcoded 35%
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road|Probability", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float ParkingChance = 0.35f; // Default is 0.35 (35% probability)
+	float ParkingChance = 0.35f;
 
-	// ==================== Debug Settings ====================
+	// ==================== 道路视觉资源 ====================
 
-	// Radius of the node sphere drawn during debugging
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road|Debug")
-	float NodeSphereRadius = 30.f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road|Visual")
+	UStaticMesh* RoadMesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road|Visual")
+	UMaterialInterface* RoadMaterial;
+
+	/**
+	 * 核心接口：在指定的区块（ChunkActor）上生成路网
+	 * @param ChunkActor 目标区块Actor
+	 * @param ChunkBounds 该区块的世界坐标2D范围
+	 * @return 返回生成的路网在世界坐标下的所有 2D 占用盒子，用于建筑避让
+	 */
+	TArray<FBox2D> GenerateRoadNetworkOnChunk(AActor* ChunkActor, const FBox2D& ChunkBounds);
 
 private:
-	// Deterministic pseudo-random hash algorithm incorporating the seed
+	// 确定性哈希算法
 	uint32 GetGridHash(int32 X, int32 Y) const;
 	uint32 GetSegmentHash(int32 X1, int32 Y1, int32 X2, int32 Y2) const;
 
-	// Check if a road network node exists at the specified grid coordinates
+	// 基础规则判定
 	bool DoesNodeExistAtGrid(int32 X, int32 Y) const;
-
-	// Check if two adjacent nodes are physically connected (not blocked by BlockChance)
 	bool IsPathConnected(int32 X1, int32 Y1, int32 X2, int32 Y2) const;
 
-	// Core helper method: Safely calculate the base road type at the specified coordinates (excluding StraightToNode conversion)
+	// 获取节点基础类型
 	ERoadType GetInitialRoadTypeAt(int32 X, int32 Y) const;
-
-	// Get player location, generate local road network, and perform real-time debug drawing
-	void UpdateAndDrawRoadNetwork(const FVector& PlayerLocation);
-
-	FColor GetColorForRoadType(ERoadType Type) const;
-	FString GetTextForRoadType(ERoadType Type) const;
 };
