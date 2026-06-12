@@ -4,6 +4,7 @@
 #include "GameFramework/Actor.h"
 #include "Components/StaticMeshComponent.h"
 #include "NavigationInvokerComponent.h"
+#include "RoadNetworkComponent.h" // 引入路网组件头文件
 #include "EndlessMapManager.generated.h"
 
 UCLASS()
@@ -36,28 +37,21 @@ public:
 	// ==========================================
 	// Global Limits - Safe Zone
 	// ==========================================
-
-	// Radius of the safe zone around the world origin (0,0) in meters. No architectures will spawn within this area.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|Global Limits")
 	float InitialSafeZoneRadius_Meters;
 
 	// ==========================================
 	// Architecture Generation Settings
 	// ==========================================
-
-	// Directory path where architecture meshes are located (e.g., /Game/Environment/Buildings)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|Architectures", meta = (RelativeToGameContentDir))
 	FDirectoryPath ArchitecturePath;
 
-	// Spacing between buildings (X = min, Y = max) in meters
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|Architectures")
 	FVector2D BuildingSpacing_Meters;
 
-	// Margin from the edge of the chunk (X = min, Y = max) in meters
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|Architectures")
 	FVector2D EdgeMargin_Meters;
 
-	// Maximum number of buildings to spawn per chunk
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|Architectures")
 	int32 MaxBuildingsPerChunk;
 
@@ -70,11 +64,16 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Map Generation|Navigation")
 	UNavigationInvokerComponent* NavInvokerComp;
 
+	// ==========================================
+	// Road Network Component
+	// ==========================================
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Map Generation|Road")
+	URoadNetworkComponent* RoadNetworkComp;
+
 private:
 	UPROPERTY()
 	TMap<FIntPoint, AActor*> ActiveChunks;
 
-	// Array to store loaded architecture static meshes
 	UPROPERTY()
 	TArray<UStaticMesh*> LoadedArchitectures;
 
@@ -88,12 +87,10 @@ private:
 	void LoadArchitectures();
 	void SpawnTileAtGrid(const FIntPoint& GridLocation);
 
-	// Spawns architectures onto the specified chunk actor
-	void SpawnArchitecturesOnChunk(AActor* ChunkActor);
+	// 新增重载：支持接收路网占用盒列表，从而在生成建筑时避开路网
+	void SpawnArchitecturesOnChunk(AActor* ChunkActor, const TArray<FBox2D>& RoadOccupiedBoxes);
 
-	// Checks if a 2D bounding box falls within the initial safe zone
 	bool IsInInitialSafeZone(const FBox2D& Bounds2D) const;
-
 	bool DestroyFarthestTile(const TArray<FIntPoint>& ProtectedGrids);
 
 	FIntPoint WorldToGrid(const FVector& WorldLocation) const;
