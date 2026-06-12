@@ -6,7 +6,8 @@
 
 URoadNetworkComponent::URoadNetworkComponent()
 {
-	PrimaryComponentTick.bCanEverTick = true; // Enable Tick to allow real-time tracking and drawing
+	// Enable Tick to support real-time position tracking and road network debug drawing
+	PrimaryComponentTick.bCanEverTick = true;
 }
 
 void URoadNetworkComponent::BeginPlay()
@@ -21,7 +22,7 @@ void URoadNetworkComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 	UWorld* World = GetWorld();
 	if (!World) return;
 
-	// Automatically track the local player's position
+	// Automatically get the local player coordinates and generate/draw the road network in real-time centered on them
 	APlayerController* PC = World->GetFirstPlayerController();
 	if (PC && PC->GetPawn())
 	{
@@ -30,7 +31,7 @@ void URoadNetworkComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 	}
 }
 
-// Classic deterministic Jenkins hash variant. Inputs coordinates, returns a fixed pseudo-random number.
+// Classic deterministic Jenkins hash variant. Takes coordinates and returns a fixed pseudo-random value
 uint32 URoadNetworkComponent::GetGridHash(int32 X, int32 Y) const
 {
 	uint32 a = (uint32)X;
@@ -43,7 +44,7 @@ uint32 URoadNetworkComponent::GetGridHash(int32 X, int32 Y) const
 	return a;
 }
 
-// Ensures the calculated hash is identical for bidirectional road segments (A->B and B->A)
+// Ensure that the calculated hash value for bidirectional road segments (A->B and B->A) is identical
 uint32 URoadNetworkComponent::GetSegmentHash(int32 X1, int32 Y1, int32 X2, int32 Y2) const
 {
 	if (X1 > X2 || (X1 == X2 && Y1 > Y2))
@@ -51,13 +52,13 @@ uint32 URoadNetworkComponent::GetSegmentHash(int32 X1, int32 Y1, int32 X2, int32
 		Swap(X1, X2);
 		Swap(Y1, Y2);
 	}
-	// Combine both coordinates into the hash calculation
+	// Combine the two coordinates for hash calculation
 	return GetGridHash(X1 + Y1 * 1000, X2 + Y2 * 1000);
 }
 
 bool URoadNetworkComponent::DoesNodeExistAtGrid(int32 X, int32 Y) const
 {
-	// Basic rule: Lay out an infinite road network of 3x3 block grids (i.e., a main road every 3 cells)
+	// Base rule: Infinite road tiling in a 3x3 block grid layout (i.e., a main road every 3 grid units)
 	return (X % 3 == 0) || (Y % 3 == 0);
 }
 
@@ -75,12 +76,12 @@ bool URoadNetworkComponent::IsPathConnected(int32 X1, int32 Y1, int32 X2, int32 
 		return false;
 	}
 
-	// Use segment hash for deterministic blocking, creating random dead ends and branches in the road network
+	// Use segment hash to achieve deterministic blocking, creating random dead ends and branches
 	uint32 EdgeHash = GetSegmentHash(X1, Y1, X2, Y2);
 	return (EdgeHash % 100) >= (uint32)BlockChance;
 }
 
-// Deterministically resolves the base road type of any grid coordinate.
+// Core function: Input any coordinates, return the base road type through deterministic logic
 ERoadType URoadNetworkComponent::GetInitialRoadTypeAt(int32 X, int32 Y) const
 {
 	if (!DoesNodeExistAtGrid(X, Y))
@@ -105,13 +106,31 @@ ERoadType URoadNetworkComponent::GetInitialRoadTypeAt(int32 X, int32 Y) const
 	}
 
 	int32 ConnectionCount = Connected.Num();
+	uint32 NodeHash = GetGridHash(X, Y); // Get the deterministic hash of the current coordinates
+
 	if (ConnectionCount == 4)
 	{
-		return ERoadType::Cross;
+		// Determine Cross probability: hash range 0-99. If less than the configured percentage, keep it; otherwise, degrade to Parking
+		if ((NodeHash % 100) < (uint32)(CrossChance * 100.f))
+		{
+			return ERoadType::Cross;
+		}
+		else
+		{
+			return ERoadType::Parking;
+		}
 	}
 	else if (ConnectionCount == 3)
 	{
-		return ERoadType::TRoad;
+		// Determine TRoad probability: if it fails the probability check, degrade to Parking
+		if ((NodeHash % 100) < (uint32)(TRoadChance * 100.f))
+		{
+			return ERoadType::TRoad;
+		}
+		else
+		{
+			return ERoadType::Parking;
+		}
 	}
 	else if (ConnectionCount == 2)
 	{
@@ -128,8 +147,8 @@ ERoadType URoadNetworkComponent::GetInitialRoadTypeAt(int32 X, int32 Y) const
 	}
 	else if (ConnectionCount == 1)
 	{
-		uint32 NodeHash = GetGridHash(X, Y);
-		if (NodeHash % 100 < 35)
+		// Use the configured ParkingChance to decide whether a dead end becomes a Parking or remains an End
+		if ((NodeHash % 100) < (uint32)(ParkingChance * 100.f))
 		{
 			return ERoadType::Parking;
 		}
@@ -139,6 +158,8 @@ ERoadType URoadNetworkComponent::GetInitialRoadTypeAt(int32 X, int32 Y) const
 		}
 	}
 
+	// If ConnectionCount == 0 (no physical connections at all), it does not belong to any road.
+	// The external UpdateAndDrawRoadNetwork will filter and discard it directly. Default to Parking here.
 	return ERoadType::Parking;
 }
 
@@ -147,16 +168,16 @@ void URoadNetworkComponent::UpdateAndDrawRoadNetwork(const FVector& PlayerLocati
 	UWorld* World = GetWorld();
 	if (!World) return;
 
-	// 1. Calculate the player's current grid coordinates
+	// 1. Calculate the grid cell where the player is currently located
 	int32 PlayerGridX = FMath::RoundToInt(PlayerLocation.X / CellSize);
 	int32 PlayerGridY = FMath::RoundToInt(PlayerLocation.Y / CellSize);
 
-	// Fix the road network height slightly below the player's feet to prevent floating
+	// Adjust the grid height slightly below the player's feet to prevent floating
 	float GridHeight = PlayerLocation.Z - 90.f;
 
 	TMap<FIntPoint, FProceduralRoadNode> ActiveNodes;
 
-	// 2. Generate local nodes within the grid radius
+	// 2. Generate local active nodes within the GridRadius
 	for (int32 x = PlayerGridX - GridRadius; x <= PlayerGridX + GridRadius; ++x)
 	{
 		for (int32 y = PlayerGridY - GridRadius; y <= PlayerGridY + GridRadius; ++y)
@@ -167,12 +188,11 @@ void URoadNetworkComponent::UpdateAndDrawRoadNetwork(const FVector& PlayerLocati
 				Node.GridCoords = FIntPoint(x, y);
 				Node.WorldPosition = FVector(x * CellSize, y * CellSize, GridHeight);
 
-				// Detect connections in four cardinal directions
 				FIntPoint Directions[4] = {
-					FIntPoint(1, 0),  // Right
+					FIntPoint(1, 0), // Right
 					FIntPoint(-1, 0), // Left
-					FIntPoint(0, 1),  // Up
-					FIntPoint(0, -1)  // Down
+					FIntPoint(0, 1), // Up
+					FIntPoint(0, -1) // Down
 				};
 
 				for (const FIntPoint& Dir : Directions)
@@ -183,7 +203,14 @@ void URoadNetworkComponent::UpdateAndDrawRoadNetwork(const FVector& PlayerLocati
 					}
 				}
 
-				// Deduce initial road type
+				// [Core Bug Fix]: If all directions of a node are blocked (physical connection count is 0),
+				// then this node should not be generated as a road network node; skip it directly (prevents spawning isolated Parking lots with no road connections)
+				if (Node.ConnectedCoords.Num() == 0)
+				{
+					continue;
+				}
+
+				// Calculate the base road type
 				Node.RoadType = GetInitialRoadTypeAt(x, y);
 
 				ActiveNodes.Add(FIntPoint(x, y), Node);
@@ -191,20 +218,19 @@ void URoadNetworkComponent::UpdateAndDrawRoadNetwork(const FVector& PlayerLocati
 		}
 	}
 
-	// 3. Post-Process: Convert Straight to StraightToNode
-	// Logic: When both connected neighbors of a 'Straight' node are either 'TRoad', 'Cross', or 'Straight'
+	// 3. Post-processing: Convert eligible Straight roads to StraightToNode
+	// Logic: When both neighbors connected to a straight road are also T-Road, Cross, or Straight, upgrade its specification to StraightToNode
 	for (auto& Elem : ActiveNodes)
 	{
 		FProceduralRoadNode& Node = Elem.Value;
 		if (Node.RoadType == ERoadType::Straight)
 		{
-			// A Straight node always has exactly 2 connections
 			if (Node.ConnectedCoords.Num() == 2)
 			{
 				FIntPoint NeighborA = Node.ConnectedCoords[0];
 				FIntPoint NeighborB = Node.ConnectedCoords[1];
 
-				// Safely resolve neighbor base road types (independent of active grid bounds)
+				// Get the base road type of the neighbor (safely resolved without boundary dependencies)
 				ERoadType TypeA = GetInitialRoadTypeAt(NeighborA.X, NeighborA.Y);
 				ERoadType TypeB = GetInitialRoadTypeAt(NeighborB.X, NeighborB.Y);
 
@@ -220,7 +246,7 @@ void URoadNetworkComponent::UpdateAndDrawRoadNetwork(const FVector& PlayerLocati
 		}
 	}
 
-	// 4. Real-time debug drawing
+	// 4. Real-time Debug Drawing
 	const float LifeTime = 0.f;
 
 	for (const auto& Elem : ActiveNodes)
@@ -228,7 +254,7 @@ void URoadNetworkComponent::UpdateAndDrawRoadNetwork(const FVector& PlayerLocati
 		const FProceduralRoadNode& Node = Elem.Value;
 		FColor NodeColor = GetColorForRoadType(Node.RoadType);
 
-		// Draw node sphere
+		// Draw node debug sphere
 		DrawDebugSphere(
 			World,
 			Node.WorldPosition,
@@ -241,7 +267,7 @@ void URoadNetworkComponent::UpdateAndDrawRoadNetwork(const FVector& PlayerLocati
 			1.5f
 		);
 
-		// Draw road network label text (slightly offset upward to prevent overlapping)
+		// Draw road network label text (slightly offset vertically to prevent overlapping with the sphere)
 		FVector TextPos = Node.WorldPosition + FVector(0.f, 0.f, NodeSphereRadius + 20.f);
 		FString DebugStr = FString::Printf(TEXT("(%d,%d) %s"), Node.GridCoords.X, Node.GridCoords.Y, *GetTextForRoadType(Node.RoadType));
 		DrawDebugString(
@@ -255,7 +281,7 @@ void URoadNetworkComponent::UpdateAndDrawRoadNetwork(const FVector& PlayerLocati
 			1.1f
 		);
 
-		// Draw road connections (draw unidirectional to avoid duplicate lines)
+		// Draw lines (using a unidirectional drawing method to prevent drawing the line twice between two nodes)
 		for (const FIntPoint& TargetCoords : Node.ConnectedCoords)
 		{
 			if (TargetCoords.X > Node.GridCoords.X || (TargetCoords.X == Node.GridCoords.X && TargetCoords.Y > Node.GridCoords.Y))
@@ -280,13 +306,13 @@ FColor URoadNetworkComponent::GetColorForRoadType(ERoadType Type) const
 {
 	switch (Type)
 	{
-	case ERoadType::Straight: return FColor::Green; // Green
-	case ERoadType::StraightToNode: return FColor::Cyan; // Cyan (New category color)
-	case ERoadType::Turn: return FColor::Yellow; // Yellow
-	case ERoadType::Cross: return FColor::Red; // Red
-	case ERoadType::TRoad: return FColor::Orange; // Orange
-	case ERoadType::End: return FColor::Blue; // Blue
-	case ERoadType::Parking: return FColor::Magenta; // Magenta (Parking)
+	case ERoadType::Straight: return FColor::Green;
+	case ERoadType::StraightToNode: return FColor::Cyan;
+	case ERoadType::Turn: return FColor::Yellow;
+	case ERoadType::Cross: return FColor::Red;
+	case ERoadType::TRoad: return FColor::Orange;
+	case ERoadType::End: return FColor::Blue;
+	case ERoadType::Parking: return FColor::Magenta;
 	default: return FColor::White;
 	}
 }
