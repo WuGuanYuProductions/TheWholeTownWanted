@@ -13,10 +13,8 @@ AEndlessMapManager::AEndlessMapManager()
 	MaxBlocks = 10;
 	CheckInterval = 0.5f;
 
-	// Initial safe zone radius (defaults to 20 meters)
 	InitialSafeZoneRadius_Meters = 20.0f;
 
-	// Default spacing and margins
 	BuildingSpacing_Meters = FVector2D(2.0f, 5.0f);
 	EdgeMargin_Meters = FVector2D(1.0f, 2.0f);
 	MaxBuildingsPerChunk = 15;
@@ -26,6 +24,9 @@ AEndlessMapManager::AEndlessMapManager()
 
 	NavInvokerComp = CreateDefaultSubobject<UNavigationInvokerComponent>(TEXT("NavInvokerComp"));
 	NavInvokerComp->SetGenerationRadii(3000.f, 5000.f);
+
+	// 实例化路网组件
+	RoadNetworkComp = CreateDefaultSubobject<URoadNetworkComponent>(TEXT("RoadNetworkComp"));
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeVisualAsset(TEXT("/Engine/BasicShapes/Cube.Cube"));
 	if (CubeVisualAsset.Succeeded())
@@ -65,7 +66,6 @@ void AEndlessMapManager::LoadArchitectures()
 	FString FinalPath = ArchitecturePath.Path;
 	FinalPath.ReplaceInline(TEXT("\\"), TEXT("/"));
 
-	// Auto-fix path to start with /Game/...
 	if (!FinalPath.StartsWith(TEXT("/")))
 	{
 		FinalPath = TEXT("/Game/") + FinalPath;
@@ -179,7 +179,7 @@ bool AEndlessMapManager::DestroyFarthestTile(const TArray<FIntPoint>& ProtectedG
 
 	if (bFound && ActorToDestroy)
 	{
-		ActorToDestroy->Destroy();
+		ActorToDestroy->Destroy(); // 销毁区块 Actor，挂载其上的路网组件与建筑会自动一并销毁
 		ActiveChunks.Remove(FarthestGrid);
 		return true;
 	}
@@ -211,12 +211,14 @@ void AEndlessMapManager::SpawnTileAtGrid(const FIntPoint& GridLocation)
 {
 	FVector ChunkCenter = GridToWorld(GridLocation);
 
+	// 1. 创建区块 Actor (Ground 容器)
 	AActor* ChunkActor = GetWorld()->SpawnActor<AActor>(AActor::StaticClass(), ChunkCenter, FRotator::ZeroRotator);
 	USceneComponent* RootComp = NewObject<USceneComponent>(ChunkActor);
 	ChunkActor->SetRootComponent(RootComp);
 	RootComp->RegisterComponent();
 	ChunkActor->SetActorLocation(ChunkCenter);
 
+	// 2. 创建 Ground 静态网格组件
 	UStaticMeshComponent* TileComp = NewObject<UStaticMeshComponent>(ChunkActor);
 	TileComp->SetupAttachment(RootComp);
 
@@ -262,41 +264,43 @@ void AEndlessMapManager::SpawnTileAtGrid(const FIntPoint& GridLocation)
 		OffsetZ = -(NativeSizeZ * RealScaleZ) / 2.0f;
 	}
 	TileComp->SetRelativeLocation(FVector(0.f, 0.f, OffsetZ));
-
 	TileComp->RegisterComponent();
 
 	ActiveChunks.Add(GridLocation, ChunkActor);
 
-	// ==========================================
-	// Spawn architectures on the newly created chunk
-	// ==========================================
-	SpawnArchitecturesOnChunk(ChunkActor);
+	// 计算区块的 2D 坐标边界
+	FBox2D ChunkBounds(
+		FVector2D(ChunkCenter.X - TargetCM_X / 2.f, ChunkCenter.Y - TargetCM_Y / 2.f),
+		FVector2D(ChunkCenter.X + TargetCM_X / 2.f, ChunkCenter.Y + TargetCM_Y / 2.f)
+	);
+
+	// 3. 在 Ground 上生成路网，并返回路网的 2D 避让盒子
+	TArray<FBox2D> RoadBoxes;
+	if (RoadNetworkComp)
+	{
+		RoadBoxes = RoadNetworkComp->GenerateRoadNetworkOnChunk(ChunkActor, ChunkBounds);
+	}
+
+	// 4. 生成建筑（传入路网占用盒，保证避让）
+	SpawnArchitecturesOnChunk(ChunkActor, RoadBoxes);
 }
 
-// ==========================================
-// Helper function to check if a bounding box is within the initial safe zone
-// ==========================================
 bool AEndlessMapManager::IsInInitialSafeZone(const FBox2D& Bounds2D) const
 {
-	// If safe zone radius is 0 or negative, bypass the check
 	if (InitialSafeZoneRadius_Meters <= 0.0f) return false;
 
 	float SafeRadiusCM = InitialSafeZoneRadius_Meters * 100.0f;
-
-	// Origin point (0, 0)
 	FVector2D Origin(0.0f, 0.0f);
 
-	// Calculate the closest point on the 2D bounding box to the origin
 	FVector2D ClosestPoint(
 		FMath::Clamp(Origin.X, Bounds2D.Min.X, Bounds2D.Max.X),
 		FMath::Clamp(Origin.Y, Bounds2D.Min.Y, Bounds2D.Max.Y)
 	);
 
-	// Return true if the closest point is within the safe zone radius
 	return ClosestPoint.SizeSquared() < (SafeRadiusCM * SafeRadiusCM);
 }
 
-void AEndlessMapManager::SpawnArchitecturesOnChunk(AActor* ChunkActor)
+void AEndlessMapManager::SpawnArchitecturesOnChunk(AActor* ChunkActor, const TArray<FBox2D>& RoadOccupiedBoxes)
 {
 	if (LoadedArchitectures.Num() == 0 || !ChunkActor) return;
 
@@ -319,7 +323,8 @@ void AEndlessMapManager::SpawnArchitecturesOnChunk(AActor* ChunkActor)
 		ChunkCenter2D + FVector2D(SafeHalfX, SafeHalfY)
 	);
 
-	TArray<FBox2D> OccupiedBoxes;
+	// 初始化建筑占用盒子列表，并直接将路网占用盒拷入，以实现避让路网
+	TArray<FBox2D> OccupiedBoxes = RoadOccupiedBoxes;
 
 	int32 BuildingsSpawned = 0;
 	int32 MaxAttempts = MaxBuildingsPerChunk * 5;
@@ -359,18 +364,13 @@ void AEndlessMapManager::SpawnArchitecturesOnChunk(AActor* ChunkActor)
 			RandomLoc2D + FVector2D(TotalExtentX, TotalExtentY)
 		);
 
-		// ==========================================
-		// Rule 1: Check if the candidate building is within the initial safe zone.
-		// If it overlaps with the safe zone, skip spawning.
-		// ==========================================
+		// 规则 1：检查是否在安全区内
 		if (IsInInitialSafeZone(CandidateBox))
 		{
-			continue; // Skip spawning as it is in the safe zone
+			continue;
 		}
 
-		// ==========================================
-		// Rule 2: Check for overlaps with already spawned buildings in the current chunk.
-		// ==========================================
+		// 规则 2：重叠检查（由于 OccupiedBoxes 预存了路网盒子，此处会自动筛除落在道路上的建筑位置）
 		bool bOverlaps = false;
 		for (const FBox2D& ExistingBox : OccupiedBoxes)
 		{
