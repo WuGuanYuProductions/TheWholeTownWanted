@@ -6,13 +6,12 @@ UPropGenerator::UPropGenerator()
 {
 	PrimaryComponentTick.bCanEverTick = false;
 
-	// 默认参数初始化
 	PropSpacing_Meters = FVector2D(1.0f, 3.0f);
 	EdgeMargin_Meters = FVector2D(0.5f, 1.5f);
-	PropToRoadDistance_Meters = 0.2f;      // 默认离马路 0.2 米
-	PropToBuildingDistance_Meters = 0.3f;  // 默认离建筑 0.3 米
+	PropToRoadDistance_Meters = 0.2f;
+	PropToBuildingDistance_Meters = 0.3f;
 	MaxPropsPerChunk = 15;
-	InitialSafeZoneRadius_Meters = 15.0f;  // 【需求3】默认 15 米安全区
+	InitialSafeZoneRadius_Meters = 15.0f;
 }
 
 void UPropGenerator::BeginPlay()
@@ -89,7 +88,6 @@ void UPropGenerator::GeneratePropsOnChunk(
 
 	float ActualEdgeMargin = FMath::RandRange(EdgeMargin_Meters.X, EdgeMargin_Meters.Y) * 100.0f;
 
-	// 计算当前区块内排除边缘后，合法的道具采样生成 2D 包围盒
 	FBox2D ChunkSafeBox(
 		ChunkBounds.Min + FVector2D(ActualEdgeMargin, ActualEdgeMargin),
 		ChunkBounds.Max - FVector2D(ActualEdgeMargin, ActualEdgeMargin)
@@ -97,7 +95,6 @@ void UPropGenerator::GeneratePropsOnChunk(
 
 	if (ChunkSafeBox.Min.X >= ChunkSafeBox.Max.X || ChunkSafeBox.Min.Y >= ChunkSafeBox.Max.Y) return;
 
-	// 1. 【需求1】外扩路网检测盒 (单位转换为厘米)
 	float RoadBufferCM = PropToRoadDistance_Meters * 100.0f;
 	TArray<FBox2D> ExpandedRoadBoxes;
 	for (const FBox2D& RoadBox : RoadOccupiedBoxes)
@@ -109,7 +106,6 @@ void UPropGenerator::GeneratePropsOnChunk(
 		ExpandedRoadBoxes.Add(ExpandedBox);
 	}
 
-	// 2. 【需求2】外扩建筑检测盒 (单位转换为厘米)
 	float BuildingBufferCM = PropToBuildingDistance_Meters * 100.0f;
 	TArray<FBox2D> ExpandedBuildingBoxes;
 	for (const FBox2D& BuildingBox : BuildingOccupiedBoxes)
@@ -121,7 +117,6 @@ void UPropGenerator::GeneratePropsOnChunk(
 		ExpandedBuildingBoxes.Add(ExpandedBox);
 	}
 
-	// 3. 道具与自身（已生成的道具）防重叠的盒子列表
 	TArray<FBox2D> SpawnedPropSpacingBoxes;
 
 	int32 PropsSpawned = 0;
@@ -143,7 +138,6 @@ void UPropGenerator::GeneratePropsOnChunk(
 		float RotatedExtentX = (RotIndex % 2 == 0) ? MeshExtents.X : MeshExtents.Y;
 		float RotatedExtentY = (RotIndex % 2 == 0) ? MeshExtents.Y : MeshExtents.X;
 
-		// 道具自身间距
 		float ActualSpacing = FMath::RandRange(PropSpacing_Meters.X, PropSpacing_Meters.Y) * 100.0f;
 
 		float HalfMeshX = RotatedExtentX;
@@ -152,7 +146,6 @@ void UPropGenerator::GeneratePropsOnChunk(
 		float HalfSpacingX = RotatedExtentX + (ActualSpacing / 2.0f);
 		float HalfSpacingY = RotatedExtentY + (ActualSpacing / 2.0f);
 
-		// 防止生成至外部，结合道具大小缩减随机采样区间
 		float MinLocX = ChunkSafeBox.Min.X + HalfMeshX;
 		float MaxLocX = ChunkSafeBox.Max.X - HalfMeshX;
 		float MinLocY = ChunkSafeBox.Min.Y + HalfMeshY;
@@ -162,25 +155,21 @@ void UPropGenerator::GeneratePropsOnChunk(
 
 		FVector2D RandomLoc2D(FMath::RandRange(MinLocX, MaxLocX), FMath::RandRange(MinLocY, MaxLocY));
 
-		// 真实物理碰撞检测盒
 		FBox2D CandidateMeshBox(
 			RandomLoc2D - FVector2D(HalfMeshX, HalfMeshY),
 			RandomLoc2D + FVector2D(HalfMeshX, HalfMeshY)
 		);
 
-		// 带自身防重叠间距的盒子
 		FBox2D CandidateSpacingBox(
 			RandomLoc2D - FVector2D(HalfSpacingX, HalfSpacingY),
 			RandomLoc2D + FVector2D(HalfSpacingX, HalfSpacingY)
 		);
 
-		// 规则 1: 【需求3】安全区过滤
 		if (IsInInitialSafeZone(CandidateMeshBox))
 		{
 			continue;
 		}
 
-		// 规则 2: 【需求1】路网碰撞检查
 		bool bOverlapsRoad = false;
 		for (const FBox2D& RoadBox : ExpandedRoadBoxes)
 		{
@@ -192,7 +181,6 @@ void UPropGenerator::GeneratePropsOnChunk(
 		}
 		if (bOverlapsRoad) continue;
 
-		// 规则 3: 【需求2】建筑碰撞检查
 		bool bOverlapsBuilding = false;
 		for (const FBox2D& BuildingBox : ExpandedBuildingBoxes)
 		{
@@ -204,7 +192,6 @@ void UPropGenerator::GeneratePropsOnChunk(
 		}
 		if (bOverlapsBuilding) continue;
 
-		// 规则 4: 道具自身重叠与间距检查
 		bool bOverlapsProp = false;
 		for (const FBox2D& ExistingBox : SpawnedPropSpacingBoxes)
 		{
@@ -216,7 +203,6 @@ void UPropGenerator::GeneratePropsOnChunk(
 		}
 		if (bOverlapsProp) continue;
 
-		// 通过所有检测，执行生成
 		SpawnedPropSpacingBoxes.Add(CandidateSpacingBox);
 
 		UStaticMeshComponent* PropComp = NewObject<UStaticMeshComponent>(ChunkActor);
