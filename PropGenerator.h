@@ -17,45 +17,34 @@ protected:
 	virtual void BeginPlay() override;
 
 public:
-	// ==========================================
-	// 道具生成配置
-	// ==========================================
-
-	// 道具网格体读取文件路径
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prop Generation", meta = (RelativeToGameContentDir))
+	// Path to the directory containing prop static meshes.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prop Generation", meta = (RelativeToGameContentDir, ToolTip = "Path to the directory containing prop static meshes."))
 	FDirectoryPath PropPath;
 
-	// 道具与道具之间的额外间距范围（单位：米）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prop Generation")
+	// Additional spacing range between props (in meters).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prop Generation", meta = (ToolTip = "Additional spacing range between props (in meters)."))
 	FVector2D PropSpacing_Meters;
 
-	// 距区块边缘的预留边距（单位：米）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prop Generation")
+	// Reserved edge margin from the chunk boundary (in meters).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prop Generation", meta = (ToolTip = "Reserved edge margin from the chunk boundary (in meters)."))
 	FVector2D EdgeMargin_Meters;
 
-	// 道具离马路的物理避让距离（单位：米）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prop Generation", meta = (ClampMin = "0.0"))
+	// Physical avoidance distance from props to roads (in meters).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prop Generation", meta = (ClampMin = "0.0", ToolTip = "Physical avoidance distance from props to roads (in meters)."))
 	float PropToRoadDistance_Meters;
 
-	// 道具离建筑的物理避让距离（单位：米）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prop Generation", meta = (ClampMin = "0.0"))
+	// Physical avoidance distance from props to buildings (in meters).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prop Generation", meta = (ClampMin = "0.0", ToolTip = "Physical avoidance distance from props to buildings (in meters)."))
 	float PropToBuildingDistance_Meters;
 
-	// 每个区块最多生成的道具数量
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prop Generation")
+	// Maximum number of props to generate per chunk.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prop Generation", meta = (ToolTip = "Maximum number of props to generate per chunk."))
 	int32 MaxPropsPerChunk;
 
-	// 【需求3】独立的道具安全区半径（单位：米）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prop Generation|Global Limits")
+	// Radius of the independent safe zone around the starting area where no props will spawn (in meters).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prop Generation|Global Limits", meta = (ToolTip = "Radius of the independent safe zone around the starting area where no props will spawn (in meters)."))
 	float InitialSafeZoneRadius_Meters;
 
-	/**
-	 * 【核心接口】在指定的区块上生成道具
-	 * @param ChunkActor 目标区块 Actor
-	 * @param ChunkBounds 该区块的世界坐标2D范围
-	 * @param RoadOccupiedBoxes 道路占用 2D 盒子
-	 * @param BuildingOccupiedBoxes 建筑占用 2D 盒子
-	 */
 	void GeneratePropsOnChunk(
 		AActor* ChunkActor,
 		const FBox2D& ChunkBounds,
@@ -67,9 +56,7 @@ private:
 	UPROPERTY()
 	TArray<UStaticMesh*> LoadedProps;
 
-	// 【需求4】与建筑一样读取文件路径加载 Mesh
 	void LoadProps();
 
-	// 判定是否落入道具专属安全区
 	bool IsInInitialSafeZone(const FBox2D& Bounds2D) const;
 };
