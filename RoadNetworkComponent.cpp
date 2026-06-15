@@ -5,7 +5,6 @@
 
 URoadNetworkComponent::URoadNetworkComponent()
 {
-	// 移除实时 Tick 行为，完全转为事件/区块生成驱动
 	PrimaryComponentTick.bCanEverTick = false;
 
 	// 默认加载引擎的基础 Cube 作为道路视觉体
@@ -170,7 +169,7 @@ TArray<FBox2D> URoadNetworkComponent::GenerateRoadNetworkOnChunk(AActor* ChunkAc
 				}
 			}
 
-			// 2. 生成连通道路（跨区块去重核心：利用“路段中点判定法”）
+			// 2. 生成连通道路
 			FIntPoint DirectionTargets[4] = {
 				FIntPoint(x + 1, y),
 				FIntPoint(x - 1, y),
