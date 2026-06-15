@@ -31,9 +31,10 @@ protected:
 public:
 	// ==================== 基础路网设置 ====================
 
-	// 路网单元网格大小（单位：厘米，例如 800.f = 8米）
+	// 【核心控制：路网单元网格大小】（单位：厘米）
+	// 值越大，道路间距越宽，给建筑留出的街区腹地越大。默认改为 3000.f（30米）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road")
-	float CellSize = 800.f;
+	float CellSize = 3000.f;
 
 	// 道路阻断概率 (0-100)，值越大死路和转弯越多
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road", meta = (ClampMin = "0", ClampMax = "100"))
