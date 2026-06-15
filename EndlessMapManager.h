@@ -4,7 +4,7 @@
 #include "GameFramework/Actor.h"
 #include "Components/StaticMeshComponent.h"
 #include "NavigationInvokerComponent.h"
-#include "RoadNetworkComponent.h" // 引入路网组件头文件
+#include "RoadNetworkComponent.h"
 #include "EndlessMapManager.generated.h"
 
 UCLASS()
@@ -52,6 +52,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|Architectures")
 	FVector2D EdgeMargin_Meters;
 
+	// 建筑物离道路的最小间距（单位：米，可设置为 0.1 等极小值实现精准贴合）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|Architectures", meta = (ClampMin = "0.0"))
+	float BuildingToRoadDistance_Meters;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|Architectures")
 	int32 MaxBuildingsPerChunk;
 
@@ -87,7 +91,7 @@ private:
 	void LoadArchitectures();
 	void SpawnTileAtGrid(const FIntPoint& GridLocation);
 
-	// 新增重载：支持接收路网占用盒列表，从而在生成建筑时避开路网
+	// 支持接收路网占用盒列表，并在避让时结合策划配置进行物理精准的外扩检测
 	void SpawnArchitecturesOnChunk(AActor* ChunkActor, const TArray<FBox2D>& RoadOccupiedBoxes);
 
 	bool IsInInitialSafeZone(const FBox2D& Bounds2D) const;
