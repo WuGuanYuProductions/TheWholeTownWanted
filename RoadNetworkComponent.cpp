@@ -7,7 +7,6 @@ URoadNetworkComponent::URoadNetworkComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
 
-	// 默认加载引擎的基础 Cube 作为道路视觉体
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeVisualAsset(TEXT("/Engine/BasicShapes/Cube.Cube"));
 	if (CubeVisualAsset.Succeeded())
 	{
@@ -114,13 +113,11 @@ TArray<FBox2D> URoadNetworkComponent::GenerateRoadNetworkOnChunk(AActor* ChunkAc
 	TArray<FBox2D> RoadOccupiedBoxes;
 	if (!ChunkActor) return RoadOccupiedBoxes;
 
-	// 根据当前区块的2D包围盒，计算出可能涵盖的路网单元范围
 	int32 MinGridX = FMath::FloorToInt(ChunkBounds.Min.X / CellSize);
 	int32 MaxGridX = FMath::CeilToInt(ChunkBounds.Max.X / CellSize);
 	int32 MinGridY = FMath::FloorToInt(ChunkBounds.Min.Y / CellSize);
 	int32 MaxGridY = FMath::CeilToInt(ChunkBounds.Max.Y / CellSize);
 
-	// 稍微抬高路段，防止和地面产生 Z-Fighting（闪烁）
 	float RoadZHeight = ChunkActor->GetActorLocation().Z + 5.f;
 
 	for (int32 x = MinGridX; x <= MaxGridX; ++x)
@@ -131,10 +128,8 @@ TArray<FBox2D> URoadNetworkComponent::GenerateRoadNetworkOnChunk(AActor* ChunkAc
 
 			FVector2D NodeWorldPos(x * CellSize, y * CellSize);
 
-			// 1. 生成路口节点（如果路口坐标完全落在当前 Chunk 范围内）
 			if (ChunkBounds.IsInside(NodeWorldPos))
 			{
-				// 检查该节点是否是有效通路（非孤立点）
 				bool bHasConnections = false;
 				FIntPoint Directions[4] = { FIntPoint(1,0), FIntPoint(-1,0), FIntPoint(0,1), FIntPoint(0,-1) };
 				for (const auto& Dir : Directions)
@@ -148,11 +143,9 @@ TArray<FBox2D> URoadNetworkComponent::GenerateRoadNetworkOnChunk(AActor* ChunkAc
 
 				if (bHasConnections)
 				{
-					// 创建路口 2D 避让范围
 					FBox2D NodeBox(NodeWorldPos - FVector2D(RoadWidth / 2.f, RoadWidth / 2.f), NodeWorldPos + FVector2D(RoadWidth / 2.f, RoadWidth / 2.f));
 					RoadOccupiedBoxes.Add(NodeBox);
 
-					// 视觉：在 ChunkActor 下创建路口网格
 					if (RoadMesh)
 					{
 						UStaticMeshComponent* RoadComp = NewObject<UStaticMeshComponent>(ChunkActor);
@@ -161,7 +154,6 @@ TArray<FBox2D> URoadNetworkComponent::GenerateRoadNetworkOnChunk(AActor* ChunkAc
 						RoadComp->SetupAttachment(ChunkActor->GetRootComponent());
 						RoadComp->SetWorldLocation(FVector(NodeWorldPos.X, NodeWorldPos.Y, RoadZHeight));
 
-						// Cube 默认大小 100x100x100，将其缩放到 (RoadWidth, RoadWidth, 10.f)
 						RoadComp->SetWorldScale3D(FVector(RoadWidth / 100.f, RoadWidth / 100.f, 0.1f));
 						RoadComp->SetCanEverAffectNavigation(true);
 						RoadComp->RegisterComponent();
@@ -169,7 +161,6 @@ TArray<FBox2D> URoadNetworkComponent::GenerateRoadNetworkOnChunk(AActor* ChunkAc
 				}
 			}
 
-			// 2. 生成连通道路
 			FIntPoint DirectionTargets[4] = {
 				FIntPoint(x + 1, y),
 				FIntPoint(x - 1, y),
@@ -184,10 +175,8 @@ TArray<FBox2D> URoadNetworkComponent::GenerateRoadNetworkOnChunk(AActor* ChunkAc
 					FVector2D TargetWorldPos(Target.X * CellSize, Target.Y * CellSize);
 					FVector2D RoadMidpoint = (NodeWorldPos + TargetWorldPos) / 2.f;
 
-					// 只有在路段中点落在当前区块范围内时，该区块才负责生成并记录这条路段
 					if (ChunkBounds.IsInside(RoadMidpoint))
 					{
-						// 双向去重：确保 (A->B) 和 (B->A) 只生成一次
 						if (Target.X > x || (Target.X == x && Target.Y > y))
 						{
 							float MinX = FMath::Min(NodeWorldPos.X, TargetWorldPos.X);
@@ -195,23 +184,20 @@ TArray<FBox2D> URoadNetworkComponent::GenerateRoadNetworkOnChunk(AActor* ChunkAc
 							float MinY = FMath::Min(NodeWorldPos.Y, TargetWorldPos.Y);
 							float MaxY = FMath::Max(NodeWorldPos.Y, TargetWorldPos.Y);
 
-							// 赋予道路物理宽度
-							if (MinX == MaxX) // 垂直道路
+							if (MinX == MaxX)
 							{
 								MinX -= RoadWidth / 2.f;
 								MaxX += RoadWidth / 2.f;
 							}
-							else if (MinY == MaxY) // 水平道路
+							else if (MinY == MaxY)
 							{
 								MinY -= RoadWidth / 2.f;
 								MaxY += RoadWidth / 2.f;
 							}
 
-							// 记录道路占用盒子，用于避开建筑
 							FBox2D LinkBox(FVector2D(MinX, MinY), FVector2D(MaxX, MaxY));
 							RoadOccupiedBoxes.Add(LinkBox);
 
-							// 视觉：生成连接道路段
 							if (RoadMesh)
 							{
 								UStaticMeshComponent* LinkComp = NewObject<UStaticMeshComponent>(ChunkActor);
