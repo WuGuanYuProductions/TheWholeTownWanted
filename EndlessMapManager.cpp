@@ -9,15 +9,19 @@ AEndlessMapManager::AEndlessMapManager()
 {
 	PrimaryActorTick.bCanEverTick = false;
 
-	GroundScale_Meters = FVector2D(10.0f, 10.0f);
+	// 【核心控制：区块大小】由于路网拉大（30m），区块大小也默认由 10m 增大到 50m
+	// 50x50米的区块能够完美容纳 30 米网格的马路，并在网格内生成数栋房子
+	GroundScale_Meters = FVector2D(50.0f, 50.0f);
 	MaxBlocks = 10;
 	CheckInterval = 0.5f;
 
 	InitialSafeZoneRadius_Meters = 20.0f;
 
+	// 建筑默认参数设置
 	BuildingSpacing_Meters = FVector2D(2.0f, 5.0f);
 	EdgeMargin_Meters = FVector2D(1.0f, 2.0f);
-	MaxBuildingsPerChunk = 15;
+	BuildingToRoadDistance_Meters = 0.5f; // 默认建筑物离道路 0.5 米，现在可支持设为 0.1 以下
+	MaxBuildingsPerChunk = 25; // 增大了区块面积，所以适度调高单个区块的可承载建筑上限
 
 	CurrentPlayerGrid = FIntPoint(-99999, -99999);
 	LastMoveDir = FIntPoint(0, 0);
@@ -268,20 +272,20 @@ void AEndlessMapManager::SpawnTileAtGrid(const FIntPoint& GridLocation)
 
 	ActiveChunks.Add(GridLocation, ChunkActor);
 
-	// 计算区块的 2D 坐标边界
+	// 计算区块的 2D 范围
 	FBox2D ChunkBounds(
 		FVector2D(ChunkCenter.X - TargetCM_X / 2.f, ChunkCenter.Y - TargetCM_Y / 2.f),
 		FVector2D(ChunkCenter.X + TargetCM_X / 2.f, ChunkCenter.Y + TargetCM_Y / 2.f)
 	);
 
-	// 3. 在 Ground 上生成路网，并返回路网的 2D 避让盒子
+	// 3. 在 Ground 上生成路网，并返回路网的 2D 占用盒子
 	TArray<FBox2D> RoadBoxes;
 	if (RoadNetworkComp)
 	{
 		RoadBoxes = RoadNetworkComp->GenerateRoadNetworkOnChunk(ChunkActor, ChunkBounds);
 	}
 
-	// 4. 生成建筑（传入路网占用盒，保证避让）
+	// 4. 生成建筑并传入路网占用盒子以控制避让
 	SpawnArchitecturesOnChunk(ChunkActor, RoadBoxes);
 }
 
@@ -323,8 +327,24 @@ void AEndlessMapManager::SpawnArchitecturesOnChunk(AActor* ChunkActor, const TAr
 		ChunkCenter2D + FVector2D(SafeHalfX, SafeHalfY)
 	);
 
-	// 初始化建筑占用盒子列表，并直接将路网占用盒拷入，以实现避让路网
-	TArray<FBox2D> OccupiedBoxes = RoadOccupiedBoxes;
+	// 1. 将米转换为厘米
+	float RoadBufferCM = BuildingToRoadDistance_Meters * 100.0f;
+
+	// 2. 将路网占用盒进行“外扩”后存入单独的列表中
+	// 该列表【只】用于对候选建筑的【真实物理大小】进行碰撞检测，实现物理级别的完美避让
+	TArray<FBox2D> ExpandedRoadBoxes;
+	for (const FBox2D& RoadBox : RoadOccupiedBoxes)
+	{
+		FBox2D ExpandedBox(
+			RoadBox.Min - FVector2D(RoadBufferCM, RoadBufferCM),
+			RoadBox.Max + FVector2D(RoadBufferCM, RoadBufferCM)
+		);
+		ExpandedRoadBoxes.Add(ExpandedBox);
+	}
+
+	// 3. 另外声明一个独立的列表，存储已经生成建筑的【带额外建筑间距】的盒子
+	// 该列表【只】用于建筑物与建筑物之间的防重叠与间距控制
+	TArray<FBox2D> SpawnedBuildingSpacingBoxes;
 
 	int32 BuildingsSpawned = 0;
 	int32 MaxAttempts = MaxBuildingsPerChunk * 5;
@@ -345,57 +365,84 @@ void AEndlessMapManager::SpawnArchitecturesOnChunk(AActor* ChunkActor, const TAr
 		float RotatedExtentX = (RotIndex % 2 == 0) ? MeshExtents.X : MeshExtents.Y;
 		float RotatedExtentY = (RotIndex % 2 == 0) ? MeshExtents.Y : MeshExtents.X;
 
+		// 计算建筑间距
 		float ActualSpacing = FMath::RandRange(BuildingSpacing_Meters.X, BuildingSpacing_Meters.Y) * 100.0f;
 
-		float TotalExtentX = RotatedExtentX + (ActualSpacing / 2.0f);
-		float TotalExtentY = RotatedExtentY + (ActualSpacing / 2.0f);
+		// a) 建筑物的真实边界半长宽 (不包含建筑间距)
+		float HalfMeshX = RotatedExtentX;
+		float HalfMeshY = RotatedExtentY;
 
-		float MinLocX = ChunkSafeBox.Min.X + TotalExtentX;
-		float MaxLocX = ChunkSafeBox.Max.X - TotalExtentX;
-		float MinLocY = ChunkSafeBox.Min.Y + TotalExtentY;
-		float MaxLocY = ChunkSafeBox.Max.Y - TotalExtentY;
+		// b) 建筑物的间距边界半长宽 (包含了建筑间距)
+		float HalfSpacingX = RotatedExtentX + (ActualSpacing / 2.0f);
+		float HalfSpacingY = RotatedExtentY + (ActualSpacing / 2.0f);
+
+		// 为了防止穿出 Chunk，根据真实大小计算可用随机生成范围
+		float MinLocX = ChunkSafeBox.Min.X + HalfMeshX;
+		float MaxLocX = ChunkSafeBox.Max.X - HalfMeshX;
+		float MinLocY = ChunkSafeBox.Min.Y + HalfMeshY;
+		float MaxLocY = ChunkSafeBox.Max.Y - HalfMeshY;
 
 		if (MinLocX > MaxLocX || MinLocY > MaxLocY) continue;
 
 		FVector2D RandomLoc2D(FMath::RandRange(MinLocX, MaxLocX), FMath::RandRange(MinLocY, MaxLocY));
 
-		FBox2D CandidateBox(
-			RandomLoc2D - FVector2D(TotalExtentX, TotalExtentY),
-			RandomLoc2D + FVector2D(TotalExtentX, TotalExtentY)
+		// 创建两个独立的候选碰撞检测盒：
+		// 1. 用于跟道路做检测的【真实物理大小盒】
+		FBox2D CandidateMeshBox(
+			RandomLoc2D - FVector2D(HalfMeshX, HalfMeshY),
+			RandomLoc2D + FVector2D(HalfMeshX, HalfMeshY)
+		);
+
+		// 2. 用于跟其他建筑做检测的【带间距大小盒】
+		FBox2D CandidateSpacingBox(
+			RandomLoc2D - FVector2D(HalfSpacingX, HalfSpacingY),
+			RandomLoc2D + FVector2D(HalfSpacingX, HalfSpacingY)
 		);
 
 		// 规则 1：检查是否在安全区内
-		if (IsInInitialSafeZone(CandidateBox))
+		if (IsInInitialSafeZone(CandidateMeshBox))
 		{
 			continue;
 		}
 
-		// 规则 2：重叠检查（由于 OccupiedBoxes 预存了路网盒子，此处会自动筛除落在道路上的建筑位置）
-		bool bOverlaps = false;
-		for (const FBox2D& ExistingBox : OccupiedBoxes)
+		// 规则 2：路网碰撞检查（完美过滤！此时与建筑的额外间距参数完全解耦）
+		// 建筑物到路网边缘的实际物理距离，将绝对受控于策划配置的 BuildingToRoadDistance_Meters
+		bool bOverlapsRoad = false;
+		for (const FBox2D& RoadBox : ExpandedRoadBoxes)
 		{
-			if (CandidateBox.Intersect(ExistingBox))
+			if (CandidateMeshBox.Intersect(RoadBox))
 			{
-				bOverlaps = true;
+				bOverlapsRoad = true;
 				break;
 			}
 		}
+		if (bOverlapsRoad) continue;
 
-		if (!bOverlaps)
+		// 规则 3：建筑间防重叠与间距检查（使用带额外间距的碰撞盒子）
+		bool bOverlapsBuilding = false;
+		for (const FBox2D& ExistingBox : SpawnedBuildingSpacingBoxes)
 		{
-			OccupiedBoxes.Add(CandidateBox);
-
-			UStaticMeshComponent* BuildingComp = NewObject<UStaticMeshComponent>(ChunkActor);
-			BuildingComp->SetStaticMesh(SelectedMesh);
-			BuildingComp->SetupAttachment(ChunkActor->GetRootComponent());
-
-			FVector WorldLoc(RandomLoc2D.X, RandomLoc2D.Y, ChunkActor->GetActorLocation().Z + MeshZOffset);
-
-			BuildingComp->SetWorldLocationAndRotation(WorldLoc, SpawnRotation);
-			BuildingComp->SetCanEverAffectNavigation(true);
-			BuildingComp->RegisterComponent();
-
-			BuildingsSpawned++;
+			if (CandidateSpacingBox.Intersect(ExistingBox))
+			{
+				bOverlapsBuilding = true;
+				break;
+			}
 		}
+		if (bOverlapsBuilding) continue;
+
+		// 两个检查均通过，确认生成，将带间距盒子加入列表
+		SpawnedBuildingSpacingBoxes.Add(CandidateSpacingBox);
+
+		UStaticMeshComponent* BuildingComp = NewObject<UStaticMeshComponent>(ChunkActor);
+		BuildingComp->SetStaticMesh(SelectedMesh);
+		BuildingComp->SetupAttachment(ChunkActor->GetRootComponent());
+
+		FVector WorldLoc(RandomLoc2D.X, RandomLoc2D.Y, ChunkActor->GetActorLocation().Z + MeshZOffset);
+
+		BuildingComp->SetWorldLocationAndRotation(WorldLoc, SpawnRotation);
+		BuildingComp->SetCanEverAffectNavigation(true);
+		BuildingComp->RegisterComponent();
+
+		BuildingsSpawned++;
 	}
 }
