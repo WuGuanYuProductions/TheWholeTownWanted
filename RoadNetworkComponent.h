@@ -28,42 +28,31 @@ protected:
 	virtual void BeginPlay() override;
 
 public:
-	// ==================== Base Road Network Settings ====================
-
-	// [Core] The size of each grid cell in the road network (in centimeters).
-	// Larger values increase road spacing, leaving larger blocks for buildings. (Default: 3000.f)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road", meta = (Tooltip = "The size of each grid cell in the road network (in centimeters). Larger values increase road spacing, leaving larger blocks for buildings."))
 	float CellSize = 3000.f;
 
-	// The probability of road blocking (0-100). Higher values result in more dead ends and turns.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road", meta = (ClampMin = "0", ClampMax = "100"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road", meta = (ClampMin = "0", ClampMax = "100", Tooltip = "The probability of road blocking (0-100). Higher values result in more dead ends and turns."))
 	int32 BlockChance = 20;
 
-	// Seed for generation. Set to -1 for a random seed.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road", meta = (Tooltip = "Seed for generation. Set to -1 for a random seed."))
 	int32 Seed = -1;
 
-	// The physical width of the road (in centimeters). Buildings will spawn outside of this width.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road", meta = (Tooltip = "The physical width of the road (in centimeters). Buildings will spawn outside of this width."))
 	float RoadWidth = 300.f;
 
-	// ==================== Probability Settings ====================
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road|Probability", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road|Probability", meta = (ClampMin = "0.0", ClampMax = "1.0", Tooltip = "The probability of a 4-way intersection (Cross) spawning."))
 	float CrossChance = 1.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road|Probability", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road|Probability", meta = (ClampMin = "0.0", ClampMax = "1.0", Tooltip = "The probability of a 3-way intersection (T-Road) spawning."))
 	float TRoadChance = 1.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road|Probability", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road|Probability", meta = (ClampMin = "0.0", ClampMax = "1.0", Tooltip = "The probability of a parking spot spawning at dead ends."))
 	float ParkingChance = 0.35f;
 
-	// ==================== Visual Assets ====================
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road|Visual")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road|Visual", meta = (Tooltip = "Static mesh asset representing the road segments."))
 	UStaticMesh* RoadMesh;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road|Visual")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Procedural Road|Visual", meta = (Tooltip = "Material interface to apply to the generated road meshes."))
 	UMaterialInterface* RoadMaterial;
 
 	TArray<FBox2D> GenerateRoadNetworkOnChunk(AActor* ChunkActor, const FBox2D& ChunkBounds);
