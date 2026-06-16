@@ -17,31 +17,24 @@ protected:
 	virtual void BeginPlay() override;
 
 public:
-	// Path to the directory containing prop static meshes.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prop Generation", meta = (RelativeToGameContentDir, ToolTip = "Path to the directory containing prop static meshes."))
 	FDirectoryPath PropPath;
 
-	// Additional spacing range between props (in meters).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prop Generation", meta = (ToolTip = "Additional spacing range between props (in meters)."))
 	FVector2D PropSpacing_Meters;
 
-	// Reserved edge margin from the chunk boundary (in meters).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prop Generation", meta = (ToolTip = "Reserved edge margin from the chunk boundary (in meters)."))
 	FVector2D EdgeMargin_Meters;
 
-	// Physical avoidance distance from props to roads (in meters).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prop Generation", meta = (ClampMin = "0.0", ToolTip = "Physical avoidance distance from props to roads (in meters)."))
 	float PropToRoadDistance_Meters;
 
-	// Physical avoidance distance from props to buildings (in meters).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prop Generation", meta = (ClampMin = "0.0", ToolTip = "Physical avoidance distance from props to buildings (in meters)."))
 	float PropToBuildingDistance_Meters;
 
-	// Maximum number of props to generate per chunk.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prop Generation", meta = (ToolTip = "Maximum number of props to generate per chunk."))
 	int32 MaxPropsPerChunk;
 
-	// Radius of the independent safe zone around the starting area where no props will spawn (in meters).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Prop Generation|Global Limits", meta = (ToolTip = "Radius of the independent safe zone around the starting area where no props will spawn (in meters)."))
 	float InitialSafeZoneRadius_Meters;
 
