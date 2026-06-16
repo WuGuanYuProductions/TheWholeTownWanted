@@ -1,63 +1,158 @@
-#pragma once
+#include "CharacterControlComponent.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/PlayerController.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "Engine/World.h"
+#include "TimerManager.h"
 
-#include "CoreMinimal.h"
-#include "Components/ActorComponent.h"
-#include "CharacterControlComponent.generated.h"
-
-UCLASS(ClassGroup = (Custom), meta = (BlueprintSpawnableComponent))
-class THEWHOLETOWNWANTED_API UCharacterControlComponent : public UActorComponent
+UCharacterControlComponent::UCharacterControlComponent()
 {
-	GENERATED_BODY()
+	PrimaryComponentTick.bCanEverTick = true;
 
-public:
-	UCharacterControlComponent();
+	RotationSpeed = 10.0f;
+	TraceChannel = ECC_Visibility;
 
-protected:
-	virtual void BeginPlay() override;
+	DashDuration = 0.25f;
+	DashSpeed = 25.0f;
+	DashCooldown = 1.5f;
 
-public:
-	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+	bIsDashing = false;
+	bCanDash = true;
+}
 
-	UFUNCTION(BlueprintCallable, Category = "Character Control|Dash")
-	void Dash();
+void UCharacterControlComponent::BeginPlay()
+{
+	Super::BeginPlay();
+}
 
-public:
-	/** Rotation speed of the character. Higher values rotate faster, 0 for instant rotation. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Character Control|Rotation", meta = (ClampMin = "0.0", ToolTip = "Rotation speed of the character. Higher values rotate faster, 0 for instant rotation."))
-	float RotationSpeed;
+void UCharacterControlComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	/** Collision channel used to detect mouse cursor hit. Defaults to Visibility. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Character Control|Rotation", meta = (ToolTip = "Collision channel used to detect mouse cursor hit. Defaults to Visibility."))
-	TEnumAsByte<ECollisionChannel> TraceChannel;
+	ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
+	if (!OwnerCharacter) return;
 
-	/** Duration of the dash in seconds. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Character Control|Dash", meta = (ClampMin = "0.0", ToolTip = "Duration of the dash in seconds."))
-	float DashDuration;
+	if (bIsDashing)
+	{
+		if (UCharacterMovementComponent* MoveComp = OwnerCharacter->GetCharacterMovement())
+		{
+			MoveComp->Velocity = DashDirection * (DashSpeed * 100.0f);
+		}
+		return;
+	}
 
-	/** Speed of the dash in meters per second (m/s). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Character Control|Dash", meta = (ClampMin = "0.0", ToolTip = "Speed of the dash in meters per second (m/s)."))
-	float DashSpeed;
+	APlayerController* PC = Cast<APlayerController>(OwnerCharacter->GetController());
+	if (!PC || !PC->IsLocalController()) return;
 
-	/** Cooldown duration of the dash in seconds. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Character Control|Dash", meta = (ClampMin = "0.0", ToolTip = "Cooldown duration of the dash in seconds."))
-	float DashCooldown;
+	FHitResult HitResult;
+	if (PC->GetHitResultUnderCursor(TraceChannel, true, HitResult))
+	{
+		AActor* HitActor = HitResult.GetActor();
 
-public:
-	UFUNCTION(BlueprintPure, Category = "Character Control|Dash")
-	bool IsDashing() const { return bIsDashing; }
+		if (HitActor == OwnerCharacter)
+		{
+			return;
+		}
 
-	UFUNCTION(BlueprintPure, Category = "Character Control|Dash")
-	bool IsDashOnCooldown() const { return !bCanDash; }
+		FVector TargetLocation = HitResult.ImpactPoint;
+		FVector CharacterLocation = OwnerCharacter->GetActorLocation();
 
-private:
-	void EndDash();
-	void ResetCooldown();
+		TargetLocation.Z = CharacterLocation.Z;
+		FVector TargetDirection = TargetLocation - CharacterLocation;
 
-private:
-	bool bIsDashing;
-	bool bCanDash;
-	FVector DashDirection;
+		if (!TargetDirection.IsNearlyZero())
+		{
+			FRotator TargetRotation = TargetDirection.Rotation();
+			FRotator CurrentRotation = OwnerCharacter->GetActorRotation();
 
-	FTimerHandle DashTimerHandle;
-	FTimerHandle CooldownTimerHandle;
-};
+			TargetRotation.Pitch = 0.0f;
+			TargetRotation.Roll = 0.0f;
+			CurrentRotation.Pitch = 0.0f;
+			CurrentRotation.Roll = 0.0f;
+
+			FRotator NewRotation;
+			if (RotationSpeed <= 0.0f)
+			{
+				NewRotation = TargetRotation;
+			}
+			else
+			{
+				NewRotation = FMath::RInterpTo(CurrentRotation, TargetRotation, DeltaTime, RotationSpeed);
+			}
+
+			OwnerCharacter->SetActorRotation(NewRotation);
+		}
+	}
+}
+
+void UCharacterControlComponent::Dash()
+{
+	if (bIsDashing || !bCanDash) return;
+
+	ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
+	if (!OwnerCharacter) return;
+
+	FVector LastInput = OwnerCharacter->GetLastMovementInputVector();
+
+	if (LastInput.IsNearlyZero())
+	{
+		return;
+	}
+
+	LastInput.Z = 0.0f;
+	if (!LastInput.Normalize())
+	{
+		return;
+	}
+
+	APlayerController* PC = Cast<APlayerController>(OwnerCharacter->GetController());
+	if (PC && PC->IsLocalController())
+	{
+		FRotator ControlRot = PC->GetControlRotation();
+		ControlRot.Pitch = 0.0f;
+		ControlRot.Roll = 0.0f;
+
+		FVector LocalInput = ControlRot.UnrotateVector(LastInput);
+
+		FRotator CharacterRot = OwnerCharacter->GetActorRotation();
+		CharacterRot.Pitch = 0.0f;
+		CharacterRot.Roll = 0.0f;
+
+		DashDirection = CharacterRot.RotateVector(LocalInput);
+	}
+	else
+	{
+		DashDirection = LastInput;
+	}
+
+	if (DashDirection.IsNearlyZero())
+	{
+		DashDirection = OwnerCharacter->GetActorForwardVector();
+		DashDirection.Z = 0.0f;
+		DashDirection.Normalize();
+	}
+
+	bIsDashing = true;
+	bCanDash = false;
+
+	GetWorld()->GetTimerManager().SetTimer(DashTimerHandle, this, &UCharacterControlComponent::EndDash, DashDuration, false);
+	GetWorld()->GetTimerManager().SetTimer(CooldownTimerHandle, this, &UCharacterControlComponent::ResetCooldown, DashCooldown, false);
+}
+
+void UCharacterControlComponent::EndDash()
+{
+	bIsDashing = false;
+
+	if (ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner()))
+	{
+		if (UCharacterMovementComponent* MoveComp = OwnerCharacter->GetCharacterMovement())
+		{
+			MoveComp->Velocity = FVector::ZeroVector;
+		}
+	}
+}
+
+void UCharacterControlComponent::ResetCooldown()
+{
+	bCanDash = true;
+}
